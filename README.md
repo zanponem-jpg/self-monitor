@@ -1,75 +1,53 @@
-# React + TypeScript + Vite
+# 🎯 我的专注面板 (Self-Monitor)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+这是一个为了对抗“三天打鱼两天晒网”和“目标过多导致焦虑”而量身定制的轻量级自我监控 Web App。
 
-Currently, two official plugins are available:
+它的核心理念是：**不记录计划，只记录行动；降低启动阻力，积少成多。**
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 🚀 在线体验
+> 你的专属访问链接: `https://你的项目名.vercel.app` (请替换为你的真实 Vercel 链接)
 
-## React Compiler
+## ✨ 核心设计理念
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **强行克制（上限 3 个）**：最多只能同时推进 3 个目标。想学新东西？必须放弃或完成现有的。
+- **最小行动（微习惯）**：为每个目标设定一个“小到不可能失败”的动作（如：只看 1 页书），只要做了就算成功。
+- **行动钩子（蔡加尼克效应）**：每次打卡结束时，强制记录“下次继续做什么”，将未完成的焦虑转化为下次启动的清晰路标。
+- **周达标制（反完美主义）**：放弃容易让人破罐破摔的“连续打卡天数”，改为按周统计（如本周目标 4 次）。允许偶尔断档，只要这周总量达标即可。
 
-## Expanding the ESLint configuration
+## 🛠️ 当前功能列表
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+### 1. 目标管理
+- [x] 添加/删除目标（限定最多 3 个）。
+- [x] 自定义目标名称、图标（Emoji）、每周达成次数。
+- [x] 设定“最小行动”单元，随时在卡片上提醒自己。
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### 2. 打卡与记录
+- [x] 一键打卡（支持撤销误触）。
+- [x] 打卡弹窗内支持记录**“今日学了什么”**（学习备注）。
+- [x] 打卡弹窗内支持记录**“下次继续什么”**（遗留任务），并在下次打卡时自动高亮提示。
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### 3. 时间线与数据可视化
+- [x] **动态热力图**：类似 GitHub 贡献图，展示过去 20 周（140 天）真实的打卡密度。
+- [x] **全局进度看板**：实时展示本周总进度百分比与累计积累总次数。
+- [x] **专属时间线**：点击目标图标，弹出纵向时间轴，按时间倒序查看该目标所有的打卡备注与遗留任务节点。
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 4. 数据与自动化
+- [x] **自动跨周重置**：每周一自动清空本周进度，累计数据和热力图永久保留。
+- [x] **本地安全存储**：基于 `localStorage`，断网可用，无需注册账号。
+- [x] **数据备份**：支持将数据导出为 `.json` 文件，或从文件导入恢复（方便手机与电脑间手动同步）。
 
-```
+## 💻 技术栈
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+- **框架**: React 18 + TypeScript
+- **构建工具**: Vite
+- **样式**: Tailwind CSS
+- **图标/字体**: 内置 Emoji
+- **部署**: Vercel (自动关联 GitHub 构建)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## 🧑‍💻 本地开发指南
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+如果你想在本地修改代码运行：
 
-```
+1. 克隆仓库
+   ```bash
+   git clone https://github.com/你的用户名/self-monitor.git
