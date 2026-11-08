@@ -53,7 +53,7 @@ const getWeekStr = (date = new Date()) => {
 
 function App() {
   const [data, setData] = useState<AppData>(() => {
-    const saved = localStorage.getItem('my-monitor-data-v7') // 版本升级
+    const saved = localStorage.getItem('my-monitor-data') // 版本升级
     const currentWeekStr = getWeekStr()
 
     if (saved) {
@@ -85,7 +85,7 @@ function App() {
   const [viewingTrackId, setViewingTrackId] = useState<string | null>(null)
 
   useEffect(() => {
-    localStorage.setItem('my-monitor-data-v7', JSON.stringify(data))
+    localStorage.setItem('my-monitor-data', JSON.stringify(data))
   }, [data])
 
   // --- 愿望池逻辑 ---
