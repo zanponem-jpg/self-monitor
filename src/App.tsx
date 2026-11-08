@@ -9,6 +9,7 @@ type Track = {
   currentWeek: number
   total: number
   minAction: string
+  isArchived?: boolean
 }
 
 type HistoryRecord = {
@@ -19,7 +20,6 @@ type HistoryRecord = {
   unfinished?: string
 }
 
-// 新增：未来想做的事项
 type BacklogItem = {
   id: string
   title: string
@@ -29,7 +29,7 @@ type BacklogItem = {
 type AppData = {
   tracks: Track[]
   history: HistoryRecord[]
-  backlog: BacklogItem[] // 新增愿望池
+  backlog: BacklogItem[]
   lastWeekStr: string
 }
 
@@ -53,19 +53,37 @@ const getWeekStr = (date = new Date()) => {
 
 function App() {
   const [data, setData] = useState<AppData>(() => {
-    const saved = localStorage.getItem('my-monitor-data') // 版本升级
     const currentWeekStr = getWeekStr()
+    const saved = localStorage.getItem('my-monitor-data')
 
+    // 终极防御：如果本地有数据，尝试解析并校验
     if (saved) {
-      const parsed: AppData = JSON.parse(saved)
-      if (parsed.lastWeekStr !== currentWeekStr) {
-        parsed.tracks = parsed.tracks.map(t => ({ ...t, currentWeek: 0 }))
-        parsed.lastWeekStr = currentWeekStr
+      try {
+        const parsed = JSON.parse(saved)
+        
+        // 如果解析出来没有 tracks 或者不是数组，直接视为无效数据丢弃
+        if (!parsed || !Array.isArray(parsed.tracks)) {
+          throw new Error('无效的数据结构')
+        }
+
+        let tracks = parsed.tracks
+        const history = Array.isArray(parsed.history) ? parsed.history : []
+        const backlog = Array.isArray(parsed.backlog) ? parsed.backlog : []
+        let lastWeekStr = parsed.lastWeekStr || currentWeekStr
+
+        // 跨周检查
+        if (lastWeekStr !== currentWeekStr) {
+          tracks = tracks.map((t: Track) => ({ ...t, currentWeek: 0 }))
+          lastWeekStr = currentWeekStr
+        }
+
+        return { tracks, history, backlog, lastWeekStr }
+      } catch (e) {
+        console.warn('本地数据损坏或格式过旧，已自动重置。', e)
       }
-      // 兼容旧数据
-      if (!parsed.backlog) parsed.backlog = []
-      return parsed
     }
+
+    // 兜底空数据
     return { tracks: [], history: [], backlog: [], lastWeekStr: currentWeekStr }
   })
 
@@ -73,15 +91,11 @@ function App() {
   const [newName, setNewName] = useState('')
   const [newMinAction, setNewMinAction] = useState('')
   const [newGoal, setNewGoal] = useState(3)
-
-  // 愿望池相关状态
   const [newBacklog, setNewBacklog] = useState('')
 
-  // 打卡相关状态
   const [checkingTrackId, setCheckingTrackId] = useState<string | null>(null)
   const [checkNote, setCheckNote] = useState('')
   const [checkUnfinished, setCheckUnfinished] = useState('')
-
   const [viewingTrackId, setViewingTrackId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -105,16 +119,14 @@ function App() {
     setData(prev => ({ ...prev, backlog: prev.backlog.filter(b => b.id !== id) }))
   }
 
-  // 将愿望池的项转为正式目标
   const handleLaunchBacklog = (item: BacklogItem) => {
-    if (data.tracks.length >= 3) {
+    const activeTracks = data.tracks.filter(t => !t.isArchived)
+    if (activeTracks.length >= 3) {
       alert('当前已经有 3 个进行中的目标了。请先完成或删除一个，再从池子里捞取。')
       return
     }
-    // 自动带入名称并打开表单
     setNewName(item.title)
     setIsAdding(true)
-    // 从愿望池移除
     setData(prev => ({ ...prev, backlog: prev.backlog.filter(b => b.id !== item.id) }))
   }
 
@@ -136,11 +148,7 @@ function App() {
         t.id === checkingTrackId ? { ...t, currentWeek: t.currentWeek + 1, total: t.total + 1 } : t
       ),
       history: [...prev.history, { 
-        id: recordId, 
-        date: todayStr, 
-        trackId: checkingTrackId, 
-        note: checkNote,
-        unfinished: checkUnfinished 
+        id: recordId, date: todayStr, trackId: checkingTrackId, note: checkNote, unfinished: checkUnfinished 
       }]
     }))
     setCheckingTrackId(null)
@@ -167,8 +175,29 @@ function App() {
     }))
   }
 
+  const handleArchive = (id: string) => {
+    if (confirm('太棒了！确定要完成并归档这个目标吗？归档后你可以随时查看它的学习节点。')) {
+      setData(prev => ({
+        ...prev,
+        tracks: prev.tracks.map(t => t.id === id ? { ...t, isArchived: true, currentWeek: 0 } : t)
+      }))
+    }
+  }
+
+  const handleUnarchive = (id: string) => {
+    const activeTracks = data.tracks.filter(t => !t.isArchived)
+    if (activeTracks.length >= 3) {
+      alert('当前进行中的目标已满 3 个，无法重新激活。请先完成其他的目标。')
+      return
+    }
+    setData(prev => ({
+      ...prev,
+      tracks: prev.tracks.map(t => t.id === id ? { ...t, isArchived: false } : t)
+    }))
+  }
+
   const handleDelete = (id: string) => {
-    if (confirm('确定要放弃这个目标吗？历史记录也会一并删除。')) {
+    if (confirm('确定要彻底删除这个目标吗？它的时间线记录也会一起删掉。')) {
       setData(prev => ({
         ...prev,
         tracks: prev.tracks.filter(t => t.id !== id),
@@ -180,13 +209,14 @@ function App() {
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!newName.trim()) return
-    if (data.tracks.length >= 3) return
+    const activeTracks = data.tracks.filter(t => !t.isArchived)
+    if (activeTracks.length >= 3) return
 
     const newTrack: Track = {
       id: Date.now().toString(),
       name: newName.trim(),
       emoji: '🎯',
-      color: COLORS[data.tracks.length % COLORS.length],
+      color: COLORS[activeTracks.length % COLORS.length],
       weeklyGoal: newGoal,
       currentWeek: 0,
       total: 0,
@@ -200,42 +230,13 @@ function App() {
     setNewGoal(3)
   }
 
-  const handleExport = () => {
-    const dataStr = JSON.stringify(data, null, 2)
-    const blob = new Blob([dataStr], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `my-monitor-backup-${formatDate(new Date())}.json`
-    link.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      try {
-        const importedData = JSON.parse(event.target?.result as string)
-        if (importedData.tracks && importedData.history) {
-          if (!importedData.backlog) importedData.backlog = []
-          setData(importedData)
-          alert('数据导入成功！')
-        } else {
-          alert('文件格式不正确。')
-        }
-      } catch (err) {
-        alert('读取文件出错。')
-      }
-    }
-    reader.readAsText(file)
-    e.target.value = ''
-  }
-
+  // 统计与渲染逻辑
   const { tracks, history, backlog } = data
-  const totalGoal = tracks.reduce((sum, t) => sum + t.weeklyGoal, 0)
-  const totalCurrent = tracks.reduce((sum, t) => sum + t.currentWeek, 0)
+  const activeTracks = tracks.filter(t => !t.isArchived)
+  const archivedTracks = tracks.filter(t => t.isArchived)
+
+  const totalGoal = activeTracks.reduce((sum, t) => sum + t.weeklyGoal, 0)
+  const totalCurrent = activeTracks.reduce((sum, t) => sum + t.currentWeek, 0)
   const totalAccumulated = tracks.reduce((sum, t) => sum + t.total, 0)
   const progressPercent = totalGoal === 0 ? 0 : Math.min(Math.round((totalCurrent / totalGoal) * 100), 100)
 
@@ -295,13 +296,6 @@ function App() {
         </header>
 
         <section className="mb-10 bg-white p-6 rounded-2xl shadow-sm border border-gray-100 relative">
-          <div className="absolute top-4 right-4 flex gap-2">
-            <button onClick={handleExport} className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors">导出</button>
-            <label className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg transition-colors cursor-pointer">
-              导入
-              <input type="file" accept=".json" className="hidden" onChange={handleImport} />
-            </label>
-          </div>
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 mt-2">真实的坚持轨迹 (过去 20 周)</h2>
           <div className="flex flex-wrap gap-1.5">
             {heatmapDays.map((day, i) => {
@@ -317,8 +311,8 @@ function App() {
           </div>
         </section>
 
-        <main className="space-y-4 mb-12">
-          {tracks.length === 0 && !isAdding && (
+        <main className="space-y-4 mb-10">
+          {activeTracks.length === 0 && !isAdding && (
             <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-gray-300">
               <p className="text-gray-500 mb-4">你还没有添加任何进行中的目标</p>
               <button onClick={() => setIsAdding(true)} className="text-indigo-600 font-medium hover:underline">
@@ -327,14 +321,14 @@ function App() {
             </div>
           )}
 
-          {tracks.map(track => {
+          {activeTracks.map(track => {
             const trackPercent = Math.min((track.currentWeek / track.weeklyGoal) * 100, 100)
             const isCompleted = track.currentWeek >= track.weeklyGoal
             const latestUnfinished = getLatestUnfinished(track.id)
 
             return (
-              <div key={track.id} className="group bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center gap-4 transition-shadow hover:shadow-md relative">
-                <div className="flex items-center gap-4 flex-1">
+              <div key={track.id} className="group bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center gap-4 transition-shadow hover:shadow-md relative w-full">                
+                <div className="flex items-center gap-4 flex-1 min-w-0">
                   <div className="text-3xl w-12 h-12 flex items-center justify-center bg-gray-50 rounded-xl shrink-0 cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => setViewingTrackId(track.id)} title="查看记录详情">
                     {track.emoji}
                   </div>
@@ -345,7 +339,8 @@ function App() {
                     <p className="text-xs text-gray-400 mb-1 truncate" title={track.minAction}>💡 {track.minAction}</p>
                     {latestUnfinished && (
                       <p className="text-xs text-orange-500 mb-2 truncate font-medium flex items-center gap-1">
-                        <span>📌 待办：</span>{latestUnfinished}
+                        <span className="shrink-0">📌 待办：</span>
+                        <span className="truncate">{latestUnfinished}</span>
                       </p>
                     )}
                     <div className="h-2 bg-gray-100 rounded-full overflow-hidden mt-2">
@@ -354,16 +349,17 @@ function App() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between md:justify-end gap-3 shrink-0 mt-2 md:mt-0">
+                <div className="flex items-center justify-between md:justify-end gap-3 shrink-0 mt-2 md:mt-0 md:ml-auto">
                   <span className="text-sm font-medium text-gray-500">{track.currentWeek} / {track.weeklyGoal}</span>
                   <div className="flex items-center gap-2">
                     <button onClick={() => handleUndo(track.id)} disabled={track.currentWeek === 0} className="w-10 h-10 flex items-center justify-center rounded-xl bg-gray-50 text-gray-400 hover:bg-gray-100 disabled:opacity-30 transition-colors">-</button>
                     <button onClick={() => setCheckingTrackId(track.id)} className={`px-6 py-2 h-10 rounded-xl font-medium transition-all ${isCompleted ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm shadow-indigo-200'}`}>
                       {isCompleted ? '已达标 ✅' : '打卡'}
                     </button>
+                    <button onClick={() => handleArchive(track.id)} className="w-10 h-10 flex items-center justify-center rounded-xl bg-green-50 text-green-600 hover:bg-green-100 transition-colors" title="标记完成并归档">✔</button>
                   </div>
                 </div>
-                <button onClick={() => handleDelete(track.id)} className="absolute -top-2 -right-2 w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-200 z-10">×</button>
+                <button onClick={() => handleDelete(track.id)} className="absolute top-1 right-1 w-6 h-6 bg-red-100 text-red-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-200 z-10" title="删除此目标">×</button>
               </div>
             )
           })}
@@ -387,7 +383,7 @@ function App() {
               </div>
             </form>
           ) : (
-            tracks.length < 3 && (
+            activeTracks.length < 3 && (
               <button onClick={() => setIsAdding(true)} className="w-full py-4 rounded-2xl border-2 border-dashed border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2 font-medium">
                 + 添加新目标（最多 3 个）
               </button>
@@ -395,7 +391,31 @@ function App() {
           )}
         </main>
 
-        {/* --- 新增模块：愿望清单 (Backlog) --- */}
+        {archivedTracks.length > 0 && (
+          <section className="mb-10">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2 mb-4">
+              🏆 已完成的里程碑 <span className="text-xs font-normal text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">{archivedTracks.length} 个</span>
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {archivedTracks.map(track => (
+                <div key={track.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex justify-between items-center group relative overflow-hidden">
+                  <div className="flex items-center gap-3 cursor-pointer min-w-0 flex-1" onClick={() => setViewingTrackId(track.id)}>
+                    <span className="text-2xl grayscale opacity-70">{track.emoji}</span>
+                    <div className="min-w-0">
+                      <h3 className="font-medium text-gray-700 truncate line-through">{track.name}</h3>
+                      <p className="text-xs text-gray-400">累计 {track.total} 次 · 点击复盘节点</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ml-2">
+                    <button onClick={() => handleUnarchive(track.id)} className="text-xs px-2 py-1 bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-100" title="重新激活">唤醒</button>
+                    <button onClick={() => handleDelete(track.id)} className="text-xs px-2 py-1 bg-white border border-red-200 text-red-500 rounded hover:bg-red-50" title="彻底删除">删除</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
           <div className="mb-4">
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -405,16 +425,8 @@ function App() {
           </div>
 
           <form onSubmit={handleAddBacklog} className="flex gap-2 mb-4">
-            <input 
-              type="text" 
-              placeholder="未来想做的事（如：学 Swift、读《人类简史》...）" 
-              value={newBacklog}
-              onChange={(e) => setNewBacklog(e.target.value)}
-              className="flex-1 border border-gray-300 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-gray-400 text-sm"
-            />
-            <button type="submit" className="px-4 py-2 bg-gray-800 text-white rounded-xl hover:bg-gray-900 transition-colors text-sm font-medium">
-              收集
-            </button>
+            <input type="text" placeholder="未来想做的事（如：学 Swift、读《人类简史》...）" value={newBacklog} onChange={(e) => setNewBacklog(e.target.value)} className="flex-1 border border-gray-300 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-gray-400 text-sm" />
+            <button type="submit" className="px-4 py-2 bg-gray-800 text-white rounded-xl hover:bg-gray-900 transition-colors text-sm font-medium">收集</button>
           </form>
 
           {backlog.length > 0 ? (
@@ -423,19 +435,10 @@ function App() {
                 <li key={item.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100 group">
                   <span className="text-sm text-gray-700 truncate mr-4">{item.title}</span>
                   <div className="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={() => handleLaunchBacklog(item)}
-                      className="text-xs px-2.5 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors font-medium flex items-center gap-1"
-                      title="将此项设为当前专注目标"
-                    >
+                    <button onClick={() => handleLaunchBacklog(item)} className="text-xs px-2.5 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors font-medium flex items-center gap-1" title="将此项设为当前专注目标">
                       🚀 启动
                     </button>
-                    <button 
-                      onClick={() => handleDeleteBacklog(item.id)}
-                      className="text-xs text-gray-400 hover:text-red-500 p-1"
-                    >
-                      ✕
-                    </button>
+                    <button onClick={() => handleDeleteBacklog(item.id)} className="text-xs text-gray-400 hover:text-red-500 p-1">✕</button>
                   </div>
                 </li>
               ))}
@@ -446,31 +449,20 @@ function App() {
         </section>
       </div>
 
-      {/* --- 弹窗 1：打卡备注与遗留任务 --- */}
       {checkingTrackId && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-4">今天的学习记录</h3>
-            
             {currentCheckUnfinished && (
               <div className="mb-4 bg-orange-50 border border-orange-100 p-3 rounded-xl">
                 <p className="text-xs text-orange-600 font-semibold mb-1">📌 上次你留下了这个：</p>
                 <p className="text-sm text-orange-800">{currentCheckUnfinished}</p>
               </div>
             )}
-
             <div className="space-y-4 mb-6">
-              <textarea 
-                autoFocus placeholder="今天学了什么？（可留空）" value={checkNote} onChange={(e) => setCheckNote(e.target.value)}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm min-h-[80px] resize-y"
-              />
-              <textarea 
-                placeholder="⏭️ 没做完/下次继续做什么？" value={checkUnfinished} onChange={(e) => setCheckUnfinished(e.target.value)}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm bg-gray-50 min-h-[80px] resize-y"
-                onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitCheckIn() }}
-              />
+              <textarea autoFocus placeholder="今天学了什么？（可留空）" value={checkNote} onChange={(e) => setCheckNote(e.target.value)} className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm min-h-[80px] resize-y" />
+              <textarea placeholder="⏭️ 没做完/下次继续做什么？" value={checkUnfinished} onChange={(e) => setCheckUnfinished(e.target.value)} className="w-full border border-gray-300 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm bg-gray-50 min-h-[80px] resize-y" onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitCheckIn() }} />
             </div>
-
             <div className="flex justify-between items-center mt-2">
               <span className="text-xs text-gray-400">按 Ctrl + Enter 快速提交</span>
               <div className="flex gap-2">
@@ -482,7 +474,6 @@ function App() {
         </div>
       )}
 
-      {/* --- 弹窗 2：查看节点/时间线 --- */}
       {viewingTrackId && viewingTrack && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setViewingTrackId(null)}>
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
@@ -510,7 +501,7 @@ function App() {
                         <div className="flex justify-between items-center mb-1">
                           <span className="text-xs font-medium text-gray-500">{record.date}</span>
                         </div>
-                        <p className="text-sm text-gray-700">{record.note || '完成了打卡（无备注）。'}</p>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{record.note || '完成了打卡（无备注）。'}</p>
                         {record.unfinished && (
                           <p className="text-xs text-orange-500 mt-2 bg-orange-50 p-1.5 rounded-md">⏭️ 遗留：{record.unfinished}</p>
                         )}
